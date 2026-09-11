@@ -5,62 +5,56 @@
 namespace WinlatorMemory {
 
 static constexpr int DEFAULT_RAM_GB = 8;
-static constexpr int DEFAULT_RAM_MB = DEFAULT_RAM_GB * 1024;
+static constexpr int DEFAULT_RAM_MB = 8192;
 
 static constexpr int MIN_RAM_MB = 1024;
 static constexpr int MAX_RAM_MB = 65536;
 
-static int parseEnvInt(const char* name, int defaultValue)
+static int parseInteger(const char* value, int fallback)
 {
-    const char* env = std::getenv(name);
-
-    if (env == nullptr || *env == '\0')
-        return defaultValue;
+    if (value == nullptr || *value == '\0')
+        return fallback;
 
     errno = 0;
 
     char* end = nullptr;
-    long value = std::strtol(env, &end, 10);
+    long parsed = std::strtol(value, &end, 10);
 
     if (errno != 0 ||
-        end == env ||
+        end == value ||
         *end != '\0') {
-        return defaultValue;
+        return fallback;
     }
 
-    if (value < MIN_RAM_MB || value > MAX_RAM_MB)
-        return defaultValue;
+    if (parsed < MIN_RAM_MB || parsed > MAX_RAM_MB)
+        return fallback;
 
-    return static_cast<int>(value);
+    return static_cast<int>(parsed);
 }
 
 static int getConfiguredRamMB()
 {
-    // Preferência: RAM em MB
+    // Primeiro tenta a configuração em MB.
     const char* ramMB = std::getenv("WINLATOR_FAKE_RAM_MB");
 
     if (ramMB != nullptr && *ramMB != '\0') {
-        return parseEnvInt(
-            "WINLATOR_FAKE_RAM_MB",
-            DEFAULT_RAM_MB
-        );
+        return parseInteger(ramMB, DEFAULT_RAM_MB);
     }
 
-    // Fallback: RAM em GB
+    // Se MB não existir, tenta GB.
     const char* ramGB = std::getenv("WINLATOR_FAKE_RAM_GB");
 
     if (ramGB != nullptr && *ramGB != '\0') {
-        int gb = parseEnvInt(
-            "WINLATOR_FAKE_RAM_GB",
-            DEFAULT_RAM_GB
-        );
+        int gb = parseInteger(ramGB, DEFAULT_RAM_GB);
 
         long mb = static_cast<long>(gb) * 1024L;
 
-        if (mb >= MIN_RAM_MB && mb <= MAX_RAM_MB)
+        if (mb >= MIN_RAM_MB && mb <= MAX_RAM_MB) {
             return static_cast<int>(mb);
+        }
     }
 
+    // Padrão absoluto.
     return DEFAULT_RAM_MB;
 }
 
