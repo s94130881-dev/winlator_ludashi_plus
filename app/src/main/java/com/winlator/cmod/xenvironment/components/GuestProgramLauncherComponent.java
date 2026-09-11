@@ -36,41 +36,88 @@ import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.util.ArrayList;
 
-public class GuestProgramLauncherComponent extends EnvironmentComponent {
+public class GuestProgramLauncherComponent
+        extends EnvironmentComponent {
 
-    private static final String TAG = "GuestProgramLauncher";
+    private static final String TAG =
+            "GuestProgramLauncher";
 
     /*
-     * Default virtual RAM exposed to the container.
+     * ============================================================
+     * DEFAULT VIRTUAL RAM
+     * ============================================================
+     *
+     * Default:
+     *
+     *     8 GB
+     *     8192 MB
      *
      * IMPORTANT:
-     * This does NOT create physical RAM.
-     * It is the value passed to the Wine runtime.
+     *
+     * This DOES NOT create physical RAM.
+     *
+     * It tells the patched Wine runtime what amount of RAM
+     * should be reported through Windows memory APIs.
+     *
+     * The actual physical memory available to Linux/Android
+     * does not change.
      */
+
     private static final int DEFAULT_RAM_GB = 8;
-    private static final int DEFAULT_RAM_MB = DEFAULT_RAM_GB * 1024;
+
+    private static final int DEFAULT_RAM_MB =
+            DEFAULT_RAM_GB * 1024;
+
+    /*
+     * Maximum supported fake/virtual RAM value.
+     */
+    private static final int MAX_RAM_MB =
+            65536;
+
+    /*
+     * Minimum supported value.
+     */
+    private static final int MIN_RAM_MB =
+            1024;
 
     private String guestExecutable;
+
     private static int pid = -1;
 
     private String[] bindingPaths;
+
     private EnvVars envVars;
+
     private WineInfo wineInfo;
 
-    private String box64Preset = Box64Preset.COMPATIBILITY;
-    private String fexcorePreset = FEXCorePreset.INTERMEDIATE;
+    private String box64Preset =
+            Box64Preset.COMPATIBILITY;
+
+    private String fexcorePreset =
+            FEXCorePreset.INTERMEDIATE;
 
     private Callback<Integer> terminationCallback;
 
-    private static final Object lock = new Object();
+    private static final Object lock =
+            new Object();
 
     private final ContentsManager contentsManager;
+
     private final ContentProfile wineProfile;
 
     private Container container;
+
     private final Shortcut shortcut;
 
-    public void setWineInfo(WineInfo wineInfo) {
+    /*
+     * ============================================================
+     * WINE INFO
+     * ============================================================
+     */
+
+    public void setWineInfo(
+            WineInfo wineInfo) {
+
         this.wineInfo = wineInfo;
     }
 
@@ -78,17 +125,25 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         return wineInfo;
     }
 
+    /*
+     * ============================================================
+     * CONTAINER
+     * ============================================================
+     */
+
     public Container getContainer() {
         return container;
     }
 
-    public void setContainer(Container container) {
+    public void setContainer(
+            Container container) {
+
         this.container = container;
     }
 
     /*
      * ============================================================
-     * Runtime content
+     * RUNTIME CONTENT
      * ============================================================
      */
 
@@ -97,12 +152,18 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             String version) {
 
         ContentProfile exact =
-                contentsManager.getProfileByEntryName(type + "-" + version);
+                contentsManager.getProfileByEntryName(
+                        type + "-" + version
+                );
 
-        if (exact != null && exact.remoteUrl == null)
+        if (exact != null
+                && exact.remoteUrl == null) {
+
             return exact;
+        }
 
-        ContentProfile bestMatch = null;
+        ContentProfile bestMatch =
+                null;
 
         for (ContentProfile profile :
                 contentsManager.getInstalledProfiles(type)) {
@@ -110,18 +171,22 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             String entryName =
                     ContentsManager.getEntryName(profile);
 
-            int separator = entryName.indexOf('-');
+            int separator =
+                    entryName.indexOf('-');
 
             String versionId =
                     separator >= 0
-                            ? entryName.substring(separator + 1)
+                            ? entryName.substring(
+                                    separator + 1
+                            )
                             : profile.verName;
 
             if (version.equals(versionId)
                     || version.equals(profile.verName)) {
 
                 if (bestMatch == null
-                        || profile.verCode > bestMatch.verCode) {
+                        || profile.verCode
+                        > bestMatch.verCode) {
 
                     bestMatch = profile;
                 }
@@ -139,10 +204,17 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             File destination) {
 
         ContentProfile profile =
-                resolveInstalledRuntimeProfile(type, version);
+                resolveInstalledRuntimeProfile(
+                        type,
+                        version
+                );
 
-        if (profile != null)
-            return contentsManager.applyContent(profile);
+        if (profile != null) {
+
+            return contentsManager.applyContent(
+                    profile
+            );
+        }
 
         return TarCompressorUtils.extract(
                 TarCompressorUtils.Type.ZSTD,
@@ -152,37 +224,56 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         );
     }
 
+    /*
+     * ============================================================
+     * BOX64
+     * ============================================================
+     */
+
     private void extractBox64Files() {
 
-        ImageFs imageFs = environment.getImageFs();
-        Context context = environment.getContext();
+        ImageFs imageFs =
+                environment.getImageFs();
+
+        Context context =
+                environment.getContext();
 
         String box64Version =
                 container.getBox64Version();
 
         if (shortcut != null) {
+
             box64Version =
                     shortcut.getExtra(
                             "box64Version",
-                            shortcut.container.getBox64Version()
+                            shortcut.container
+                                    .getBox64Version()
                     );
         }
 
-        Log.d(TAG,
-                "box64Version: " + box64Version);
+        Log.d(
+                TAG,
+                "box64Version: "
+                        + box64Version
+        );
 
         File rootDir =
                 imageFs.getRootDir();
 
         if (!box64Version.equals(
-                container.getExtra("box64Version"))) {
+                container.getExtra(
+                        "box64Version"
+                ))) {
 
             boolean applied =
                     applyRuntimeContent(
-                            ContentProfile.ContentType.CONTENT_TYPE_BOX64,
+                            ContentProfile.ContentType
+                                    .CONTENT_TYPE_BOX64,
                             box64Version,
                             context,
-                            "box64/box64-" + box64Version + ".tzst",
+                            "box64/box64-"
+                                    + box64Version
+                                    + ".tzst",
                             rootDir
                     );
 
@@ -197,9 +288,11 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
             } else {
 
-                Log.e(TAG,
+                Log.e(
+                        TAG,
                         "Unable to apply Box64 version "
-                                + box64Version);
+                                + box64Version
+                );
             }
         }
 
@@ -209,9 +302,20 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                         "/usr/bin/box64"
                 );
 
-        if (box64File.exists())
-            FileUtils.chmod(box64File, 0755);
+        if (box64File.exists()) {
+
+            FileUtils.chmod(
+                    box64File,
+                    0755
+            );
+        }
     }
+
+    /*
+     * ============================================================
+     * ARM64EC / FEXCORE / WOWBOX64
+     * ============================================================
+     */
 
     private void extractEmulatorsDlls() {
 
@@ -219,15 +323,18 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                 environment.getContext();
 
         File rootDir =
-                environment.getImageFs().getRootDir();
+                environment.getImageFs()
+                        .getRootDir();
 
         File system32dir =
                 new File(
-                        rootDir +
-                        "/home/xuser/.wine/drive_c/windows/system32"
+                        rootDir
+                                + "/home/xuser/.wine/"
+                                + "drive_c/windows/system32"
                 );
 
-        boolean containerDataChanged = false;
+        boolean containerDataChanged =
+                false;
 
         String wowbox64Version =
                 container.getBox64Version();
@@ -240,30 +347,43 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             wowbox64Version =
                     shortcut.getExtra(
                             "box64Version",
-                            shortcut.container.getBox64Version()
+                            shortcut.container
+                                    .getBox64Version()
                     );
 
             fexcoreVersion =
                     shortcut.getExtra(
                             "fexcoreVersion",
-                            shortcut.container.getFEXCoreVersion()
+                            shortcut.container
+                                    .getFEXCoreVersion()
                     );
         }
 
-        Log.d(TAG,
+        Log.d(
+                TAG,
                 "box64Version in use: "
-                        + wowbox64Version);
+                        + wowbox64Version
+        );
 
-        Log.d(TAG,
+        Log.d(
+                TAG,
                 "fexcoreVersion in use: "
-                        + fexcoreVersion);
+                        + fexcoreVersion
+        );
+
+        /*
+         * WOWBOX64
+         */
 
         if (!wowbox64Version.equals(
-                container.getExtra("box64Version"))) {
+                container.getExtra(
+                        "box64Version"
+                ))) {
 
             boolean applied =
                     applyRuntimeContent(
-                            ContentProfile.ContentType.CONTENT_TYPE_WOWBOX64,
+                            ContentProfile.ContentType
+                                    .CONTENT_TYPE_WOWBOX64,
                             wowbox64Version,
                             context,
                             "wowbox64/wowbox64-"
@@ -279,43 +399,57 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                         wowbox64Version
                 );
 
-                containerDataChanged = true;
+                containerDataChanged =
+                        true;
 
             } else {
 
-                Log.e(TAG,
+                Log.e(
+                        TAG,
                         "Unable to apply WOWBox64 version "
-                                + wowbox64Version);
+                                + wowbox64Version
+                );
             }
         }
 
+        /*
+         * FEXCORE
+         */
+
         ContentProfile fexcoreProfile =
                 resolveInstalledRuntimeProfile(
-                        ContentProfile.ContentType.CONTENT_TYPE_FEXCORE,
+                        ContentProfile.ContentType
+                                .CONTENT_TYPE_FEXCORE,
                         fexcoreVersion
                 );
 
         boolean fexcoreFilesMissing =
                 fexcoreProfile != null
-                        && !contentsManager.isContentApplied(
-                        fexcoreProfile
-                );
+                        && !contentsManager
+                        .isContentApplied(
+                                fexcoreProfile
+                        );
 
         if (!fexcoreVersion.equals(
-                container.getExtra("fexcoreVersion"))
+                container.getExtra(
+                        "fexcoreVersion"
+                ))
                 || fexcoreFilesMissing) {
 
             if (fexcoreFilesMissing) {
 
-                Log.w(TAG,
-                        "FEXCore files are missing or incomplete; "
-                                + "reapplying "
-                                + fexcoreVersion);
+                Log.w(
+                        TAG,
+                        "FEXCore files are missing or "
+                                + "incomplete; reapplying "
+                                + fexcoreVersion
+                );
             }
 
             boolean applied =
                     applyRuntimeContent(
-                            ContentProfile.ContentType.CONTENT_TYPE_FEXCORE,
+                            ContentProfile.ContentType
+                                    .CONTENT_TYPE_FEXCORE,
                             fexcoreVersion,
                             context,
                             "fexcore/fexcore-"
@@ -331,23 +465,28 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                         fexcoreVersion
                 );
 
-                containerDataChanged = true;
+                containerDataChanged =
+                        true;
 
             } else {
 
-                Log.e(TAG,
+                Log.e(
+                        TAG,
                         "Unable to apply FEXCore version "
-                                + fexcoreVersion);
+                                + fexcoreVersion
+                );
             }
         }
 
-        if (containerDataChanged)
+        if (containerDataChanged) {
+
             container.saveData();
+        }
     }
 
     /*
      * ============================================================
-     * Constructor
+     * CONSTRUCTOR
      * ============================================================
      */
 
@@ -356,14 +495,19 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             ContentProfile wineProfile,
             Shortcut shortcut) {
 
-        this.contentsManager = contentsManager;
-        this.wineProfile = wineProfile;
-        this.shortcut = shortcut;
+        this.contentsManager =
+                contentsManager;
+
+        this.wineProfile =
+                wineProfile;
+
+        this.shortcut =
+                shortcut;
     }
 
     /*
      * ============================================================
-     * Start
+     * START
      * ============================================================
      */
 
@@ -372,14 +516,19 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         synchronized (lock) {
 
-            if (wineInfo.isArm64EC())
+            if (wineInfo.isArm64EC()) {
+
                 extractEmulatorsDlls();
-            else
+
+            } else {
+
                 extractBox64Files();
+            }
 
             checkDependencies();
 
-            pid = execGuestProgram();
+            pid =
+                    execGuestProgram();
         }
     }
 
@@ -397,30 +546,51 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
      *     RAM_GB=8
      *     RAM_MB=8192
      *
+     * If the file does not exist:
+     *
+     *     8 GB
+     *
+     * is automatically used.
      */
 
     private int getConfiguredRamMB() {
 
+        /*
+         * No container.
+         */
+
         if (container == null) {
 
-            Log.w(TAG,
+            Log.w(
+                    TAG,
                     "No container available; "
-                            + "using default RAM");
+                            + "using default 8 GB"
+            );
 
             return DEFAULT_RAM_MB;
         }
+
+        /*
+         * Container root.
+         */
 
         File containerRoot =
                 container.getRootDir();
 
         if (containerRoot == null) {
 
-            Log.w(TAG,
+            Log.w(
+                    TAG,
                     "Container root is null; "
-                            + "using default RAM");
+                            + "using default 8 GB"
+            );
 
             return DEFAULT_RAM_MB;
         }
+
+        /*
+         * RAM configuration.
+         */
 
         File ramConfig =
                 new File(
@@ -428,16 +598,23 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                         "ram.conf"
                 );
 
+        /*
+         * No configuration means 8 GB.
+         */
+
         if (!ramConfig.exists()) {
 
-            Log.w(TAG,
+            Log.w(
+                    TAG,
                     "ram.conf does not exist; "
-                            + "using default 8 GB");
+                            + "using default 8 GB"
+            );
 
             return DEFAULT_RAM_MB;
         }
 
-        int ramMB = DEFAULT_RAM_MB;
+        int ramMB =
+                DEFAULT_RAM_MB;
 
         try {
 
@@ -452,11 +629,19 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
             String line;
 
-            while ((line = reader.readLine()) != null) {
+            while ((line =
+                    reader.readLine()) != null) {
 
-                line = line.trim();
+                line =
+                        line.trim();
 
-                if (line.startsWith("RAM_MB=")) {
+                /*
+                 * Preferred value.
+                 */
+
+                if (line.startsWith(
+                        "RAM_MB="
+                )) {
 
                     String value =
                             line.substring(
@@ -464,9 +649,33 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                             ).trim();
 
                     ramMB =
-                            Integer.parseInt(value);
+                            Integer.parseInt(
+                                    value
+                            );
 
                     break;
+                }
+
+                /*
+                 * Fallback if only RAM_GB exists.
+                 */
+
+                if (line.startsWith(
+                        "RAM_GB="
+                )) {
+
+                    String value =
+                            line.substring(
+                                    "RAM_GB=".length()
+                            ).trim();
+
+                    int ramGB =
+                            Integer.parseInt(
+                                    value
+                            );
+
+                    ramMB =
+                            ramGB * 1024;
                 }
             }
 
@@ -474,30 +683,52 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         } catch (Exception e) {
 
-            Log.e(TAG,
+            Log.e(
+                    TAG,
                     "Failed to read ram.conf",
-                    e);
+                    e
+            );
 
-            ramMB = DEFAULT_RAM_MB;
+            ramMB =
+                    DEFAULT_RAM_MB;
         }
 
         /*
-         * Safety limits.
-         *
-         * We don't allow zero/negative RAM.
+         * Safety.
          */
-        if (ramMB < 1024)
-            ramMB = 1024;
 
-        /*
-         * Maximum virtual value accepted by
-         * this Winlator configuration.
-         */
-        if (ramMB > 65536)
-            ramMB = 65536;
+        if (ramMB < MIN_RAM_MB) {
+
+            ramMB =
+                    MIN_RAM_MB;
+        }
+
+        if (ramMB > MAX_RAM_MB) {
+
+            ramMB =
+                    MAX_RAM_MB;
+        }
 
         return ramMB;
     }
+
+    /*
+     * ============================================================
+     * APPLY VIRTUAL RAM ENVIRONMENT
+     * ============================================================
+     *
+     * This is the bridge:
+     *
+     * ContainerManager
+     *        ↓
+     * ram.conf
+     *        ↓
+     * GuestProgramLauncherComponent
+     *        ↓
+     * WINLATOR_FAKE_RAM_MB
+     *        ↓
+     * Wine
+     */
 
     private void configureVirtualRam(
             EnvVars execEnvVars) {
@@ -508,13 +739,30 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         int ramGB =
                 ramMB / 1024;
 
+        String ramValue =
+                String.valueOf(ramMB);
+
         /*
-         * These variables are consumed by
-         * the patched Wine runtime.
+         * ========================================================
+         * MAIN VARIABLE
+         * ========================================================
+         *
+         * This is the variable that the patched Wine
+         * memory implementation must read.
          */
+
+        execEnvVars.put(
+                "WINLATOR_FAKE_RAM_MB",
+                ramValue
+        );
+
+        /*
+         * Additional Winlator variables.
+         */
+
         execEnvVars.put(
                 "WINLATOR_RAM_MB",
-                String.valueOf(ramMB)
+                ramValue
         );
 
         execEnvVars.put(
@@ -522,31 +770,57 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                 String.valueOf(ramGB)
         );
 
-        /*
-         * Useful for debugging.
-         */
         execEnvVars.put(
                 "WINLATOR_RAM_ENABLED",
                 "1"
         );
 
-        Log.i(TAG,
-                "================================");
+        /*
+         * Debug information.
+         */
 
-        Log.i(TAG,
-                "Winlator virtual RAM: "
+        Log.i(
+                TAG,
+                "================================"
+        );
+
+        Log.i(
+                TAG,
+                "WINLATOR VIRTUAL RAM"
+        );
+
+        Log.i(
+                TAG,
+                "RAM_GB = "
                         + ramGB
-                        + " GB / "
-                        + ramMB
-                        + " MB");
+        );
 
-        Log.i(TAG,
-                "================================");
+        Log.i(
+                TAG,
+                "RAM_MB = "
+                        + ramMB
+        );
+
+        Log.i(
+                TAG,
+                "WINLATOR_FAKE_RAM_MB = "
+                        + ramValue
+        );
+
+        Log.i(
+                TAG,
+                "WINLATOR_RAM_ENABLED = 1"
+        );
+
+        Log.i(
+                TAG,
+                "================================"
+        );
     }
 
     /*
      * ============================================================
-     * Dependency check
+     * DEPENDENCY CHECK
      * ============================================================
      */
 
@@ -589,11 +863,19 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
             String line;
 
-            while ((line = reader.readLine()) != null)
-                output.append(line).append("\n");
+            while ((line =
+                    reader.readLine()) != null) {
 
-            while ((line = errorReader.readLine()) != null)
-                output.append(line).append("\n");
+                output.append(line)
+                        .append("\n");
+            }
+
+            while ((line =
+                    errorReader.readLine()) != null) {
+
+                output.append(line)
+                        .append("\n");
+            }
 
             process.waitFor();
 
@@ -615,7 +897,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
     /*
      * ============================================================
-     * Stop
+     * STOP
      * ============================================================
      */
 
@@ -657,8 +939,12 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             return overrideValue;
         }
 
-        if (overrideValue.equals(baseValue))
+        if (overrideValue.equals(
+                baseValue
+        )) {
+
             return baseValue;
+        }
 
         return baseValue
                 + ":"
@@ -669,7 +955,8 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             String ldPreload,
             File[] candidates) {
 
-        for (File candidate : candidates) {
+        for (File candidate :
+                candidates) {
 
             if (candidate.exists()) {
 
@@ -685,22 +972,26 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
     /*
      * ============================================================
-     * Getters / setters
+     * GETTERS / SETTERS
      * ============================================================
      */
 
-    public Callback<Integer> getTerminationCallback() {
+    public Callback<Integer>
+    getTerminationCallback() {
+
         return terminationCallback;
     }
 
     public void setTerminationCallback(
-            Callback<Integer> terminationCallback) {
+            Callback<Integer>
+                    terminationCallback) {
 
         this.terminationCallback =
                 terminationCallback;
     }
 
     public String getGuestExecutable() {
+
         return guestExecutable;
     }
 
@@ -712,6 +1003,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     }
 
     public String[] getBindingPaths() {
+
         return bindingPaths;
     }
 
@@ -723,23 +1015,27 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     }
 
     public EnvVars getEnvVars() {
+
         return envVars;
     }
 
     public void setEnvVars(
             EnvVars envVars) {
 
-        this.envVars = envVars;
+        this.envVars =
+                envVars;
     }
 
     public String getBox64Preset() {
+
         return box64Preset;
     }
 
     public void setBox64Preset(
             String box64Preset) {
 
-        this.box64Preset = box64Preset;
+        this.box64Preset =
+                box64Preset;
     }
 
     public void setFEXCorePreset(
@@ -790,11 +1086,28 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                         false
                 );
 
-        if (openWithAndroidBrowser)
+        /*
+         * ========================================================
+         * USER ENVIRONMENT SAFETY
+         * ========================================================
+         *
+         * Prevents NullPointerException when envVars
+         * has not yet been initialized.
+         */
+
+        if (this.envVars == null) {
+
+            this.envVars =
+                    new EnvVars();
+        }
+
+        if (openWithAndroidBrowser) {
+
             this.envVars.put(
                     "WINE_OPEN_WITH_ANDROID_BROWSER",
                     "1"
             );
+        }
 
         if (shareAndroidClipboard) {
 
@@ -809,29 +1122,44 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             );
         }
 
+        /*
+         * ========================================================
+         * EXECUTION ENVIRONMENT
+         * ========================================================
+         */
+
         EnvVars execEnvVars =
                 new EnvVars();
 
         /*
          * ========================================================
-         * 8 GB RAM CONFIGURATION
+         * RAM
          * ========================================================
          *
-         * This MUST happen before ProcessHelper.exec().
+         * Set early.
          */
-        configureVirtualRam(execEnvVars);
+
+        configureVirtualRam(
+                execEnvVars
+        );
 
         /*
-         * Box64
+         * ========================================================
+         * BOX64
+         * ========================================================
          */
+
         addBox64EnvVars(
                 execEnvVars,
                 enableBox64Logs
         );
 
         /*
-         * FEXCore
+         * ========================================================
+         * FEXCORE
+         * ========================================================
          */
+
         execEnvVars.putAll(
                 FEXCorePresetManager.getEnvVars(
                         context,
@@ -852,7 +1180,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                 );
 
         if (renderer != null
-                && renderer.contains("Mali")) {
+                && renderer.contains(
+                        "Mali"
+                )) {
 
             execEnvVars.put(
                     "BOX64_MMAP32",
@@ -861,7 +1191,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         }
 
         String mmap32 =
-                execEnvVars.get("BOX64_MMAP32");
+                execEnvVars.get(
+                        "BOX64_MMAP32"
+                );
 
         if (mmap32 != null
                 && mmap32.equals("1")
@@ -880,7 +1212,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         /*
          * ========================================================
-         * Linux / Wine environment
+         * LINUX / WINE ENVIRONMENT
          * ========================================================
          */
 
@@ -984,7 +1316,8 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                         + "/usr/share/alsa/alsa.conf"
                         + ":"
                         + rootDir.getPath()
-                        + "/usr/etc/alsa/conf.d/android_aserver.conf"
+                        + "/usr/etc/alsa/conf.d/"
+                        + "android_aserver.conf"
         );
 
         execEnvVars.put(
@@ -1043,7 +1376,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         /*
          * ========================================================
-         * Wine path
+         * WINE PATH
          * ========================================================
          */
 
@@ -1067,14 +1400,15 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         /*
          * ========================================================
-         * Android SysV SHM
+         * ANDROID SYSV SHM
          * ========================================================
          */
 
         execEnvVars.put(
                 "ANDROID_SYSVSHM_SERVER",
                 rootDir.getPath()
-                        + UnixSocketConfig.SYSVSHM_SERVER_PATH
+                        + UnixSocketConfig
+                        .SYSVSHM_SERVER_PATH
         );
 
         /*
@@ -1094,7 +1428,8 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                         );
 
         if (connectivityManager != null
-                && connectivityManager.getActiveNetwork() != null) {
+                && connectivityManager
+                        .getActiveNetwork() != null) {
 
             try {
 
@@ -1144,7 +1479,8 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
          * ========================================================
          */
 
-        String ld_preload = "";
+        String ld_preload =
+                "";
 
         File sysvshm =
                 new File(
@@ -1152,12 +1488,16 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                         "libandroid-sysvshm.so"
                 );
 
-        if (sysvshm.exists())
+        if (sysvshm.exists()) {
+
             ld_preload =
                     sysvshm.getAbsolutePath();
+        }
 
         /*
-         * Fake input
+         * ========================================================
+         * FAKE INPUT
+         * ========================================================
          */
 
         File fakeinputDest =
@@ -1221,12 +1561,15 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             ld_preload =
                     mergePreloadValue(
                             ld_preload,
-                            fakeinputDest.getAbsolutePath()
+                            fakeinputDest
+                                    .getAbsolutePath()
                     );
         }
 
         /*
+         * ========================================================
          * JPEG
+         * ========================================================
          */
 
         File[] jpegCandidates = {
@@ -1247,7 +1590,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                 );
 
         /*
-         * Crypto
+         * ========================================================
+         * CRYPTO
+         * ========================================================
          */
 
         File[] cryptoCandidates = {
@@ -1273,7 +1618,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                 );
 
         /*
-         * Fake evdev
+         * ========================================================
+         * FAKE EVDEV
+         * ========================================================
          */
 
         File devInputDir =
@@ -1282,8 +1629,10 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                         "dev/input"
                 );
 
-        if (!devInputDir.exists())
+        if (!devInputDir.exists()) {
+
             devInputDir.mkdirs();
+        }
 
         File event0 =
                 new File(
@@ -1294,7 +1643,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         if (!event0.exists()) {
 
             try {
+
                 event0.createNewFile();
+
             } catch (Exception ignored) {
             }
         }
@@ -1316,17 +1667,29 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         /*
          * ========================================================
-         * User environment
+         * USER ENVIRONMENT
          * ========================================================
          */
 
         if (this.envVars != null) {
 
-            if (this.envVars.has("MANGOHUD"))
-                this.envVars.remove("MANGOHUD");
+            if (this.envVars.has(
+                    "MANGOHUD"
+            )) {
 
-            if (this.envVars.has("MANGOHUD_CONFIG"))
-                this.envVars.remove("MANGOHUD_CONFIG");
+                this.envVars.remove(
+                        "MANGOHUD"
+                );
+            }
+
+            if (this.envVars.has(
+                    "MANGOHUD_CONFIG"
+            )) {
+
+                this.envVars.remove(
+                        "MANGOHUD_CONFIG"
+                );
+            }
 
             execEnvVars.putAll(
                     this.envVars
@@ -1335,7 +1698,22 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         /*
          * ========================================================
-         * DisplayX
+         * FORCE RAM AFTER USER VARIABLES
+         * ========================================================
+         *
+         * This is intentional.
+         *
+         * It prevents a custom container environment from
+         * accidentally replacing the RAM value.
+         */
+
+        configureVirtualRam(
+                execEnvVars
+        );
+
+        /*
+         * ========================================================
+         * DISPLAYX
          * ========================================================
          */
 
@@ -1385,7 +1763,8 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                         "VK_INSTANCE_LAYERS"
                 );
 
-        if (useDisplayX && trueDisplayX) {
+        if (useDisplayX
+                && trueDisplayX) {
 
             execEnvVars.put(
                     "VK_INSTANCE_LAYERS",
@@ -1394,8 +1773,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         } else {
 
-            StringBuilder
-                    filteredLayers =
+            StringBuilder filteredLayers =
                     new StringBuilder();
 
             if (enabledLayers != null
@@ -1406,19 +1784,28 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
                     if (layer.isEmpty()
                             || layer.equals(
-                            displayXLayer)) {
+                                    displayXLayer
+                            )) {
 
                         continue;
                     }
 
-                    if (filteredLayers.length() > 0)
-                        filteredLayers.append(':');
+                    if (filteredLayers.length()
+                            > 0) {
 
-                    filteredLayers.append(layer);
+                        filteredLayers.append(
+                                ':'
+                        );
+                    }
+
+                    filteredLayers.append(
+                            layer
+                    );
                 }
             }
 
-            if (filteredLayers.length() > 0) {
+            if (filteredLayers.length()
+                    > 0) {
 
                 execEnvVars.put(
                         "VK_INSTANCE_LAYERS",
@@ -1434,7 +1821,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         }
 
         /*
-         * Frame generation
+         * ========================================================
+         * FRAME GENERATION
+         * ========================================================
          */
 
         FrameGenManager.applyLaunchEnv(
@@ -1443,7 +1832,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         /*
          * ========================================================
-         * Emulator
+         * EMULATOR
          * ========================================================
          */
 
@@ -1461,11 +1850,12 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         /*
          * ========================================================
-         * Wine command
+         * WINE COMMAND
          * ========================================================
          */
 
-        String command = "";
+        String command =
+                "";
 
         String overriddenCommand =
                 execEnvVars.get(
@@ -1478,8 +1868,12 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             String[] parts =
                     overriddenCommand.split(";");
 
-            for (String part : parts)
-                command += part + " ";
+            for (String part :
+                    parts) {
+
+                command +=
+                        part + " ";
+            }
 
             command =
                     command.trim();
@@ -1495,8 +1889,10 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
                 if (emulator != null
                         && emulator
-                        .toLowerCase()
-                        .equals("fexcore")) {
+                                .toLowerCase()
+                                .equals(
+                                        "fexcore"
+                                )) {
 
                     execEnvVars.put(
                             "HODLL",
@@ -1522,7 +1918,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         /*
          * ========================================================
-         * Box64 permissions
+         * BOX64 PERMISSIONS
          * ========================================================
          */
 
@@ -1532,17 +1928,30 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                         "/usr/bin/box64"
                 );
 
-        if (box64File.exists())
+        if (box64File.exists()) {
+
             FileUtils.chmod(
                     box64File,
                     0755
             );
+        }
 
         /*
          * ========================================================
          * FINAL DEBUG
          * ========================================================
          */
+
+        int finalRamMB =
+                getConfiguredRamMB();
+
+        int finalRamGB =
+                finalRamMB / 1024;
+
+        Log.i(
+                TAG,
+                "================================"
+        );
 
         Log.i(
                 TAG,
@@ -1557,18 +1966,53 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         Log.i(
                 TAG,
+                "RAM configured: "
+                        + finalRamGB
+                        + " GB"
+        );
+
+        Log.i(
+                TAG,
+                "RAM configured: "
+                        + finalRamMB
+                        + " MB"
+        );
+
+        Log.i(
+                TAG,
+                "WINLATOR_FAKE_RAM_MB="
+                        + execEnvVars.get(
+                                "WINLATOR_FAKE_RAM_MB"
+                        )
+        );
+
+        Log.i(
+                TAG,
                 "WINLATOR_RAM_MB="
                         + execEnvVars.get(
-                        "WINLATOR_RAM_MB"
-                )
+                                "WINLATOR_RAM_MB"
+                        )
         );
 
         Log.i(
                 TAG,
                 "WINLATOR_RAM_GB="
                         + execEnvVars.get(
-                        "WINLATOR_RAM_GB"
-                )
+                                "WINLATOR_RAM_GB"
+                        )
+        );
+
+        Log.i(
+                TAG,
+                "WINLATOR_RAM_ENABLED="
+                        + execEnvVars.get(
+                                "WINLATOR_RAM_ENABLED"
+                        )
+        );
+
+        Log.i(
+                TAG,
+                "================================"
         );
 
         /*
@@ -1588,8 +2032,12 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                         pid = -1;
                     }
 
-                    if (terminationCallback != null)
-                        terminationCallback.call(status);
+                    if (terminationCallback != null) {
+
+                        terminationCallback.call(
+                                status
+                        );
+                    }
                 }
         );
     }
@@ -1659,8 +2107,12 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         synchronized (lock) {
 
-            if (pid != -1)
-                ProcessHelper.suspendProcess(pid);
+            if (pid != -1) {
+
+                ProcessHelper.suspendProcess(
+                        pid
+                );
+            }
         }
     }
 
@@ -1668,8 +2120,12 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         synchronized (lock) {
 
-            if (pid != -1)
-                ProcessHelper.resumeProcess(pid);
+            if (pid != -1) {
+
+                ProcessHelper.resumeProcess(
+                        pid
+                );
+            }
         }
     }
-}
+            }
