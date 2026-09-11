@@ -2,14 +2,48 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project(Winlator)
 
+# ============================================================
+# C++ / C
+# ============================================================
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -Wno-unused-function -Wimplicit-function-declaration")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
+
+# ============================================================
+# Winlator 8 GB Virtual RAM Configuration
+# ============================================================
+
+set(WINLATOR_DEFAULT_RAM_GB 8)
+set(WINLATOR_DEFAULT_RAM_MB 8192)
+
+add_compile_definitions(
+        WINLATOR_DEFAULT_RAM_GB=${WINLATOR_DEFAULT_RAM_GB}
+        WINLATOR_DEFAULT_RAM_MB=${WINLATOR_DEFAULT_RAM_MB}
+)
+
+# ============================================================
+# Dependencies
+# ============================================================
 
 add_subdirectory(OpenXR-SDK)
 add_subdirectory(patchelf)
 add_subdirectory(adrenotools)
 add_subdirectory(thirdparty/dxbc)
 
+# ============================================================
+# Main Winlator Native Library
+# ============================================================
+
 add_library(winlator SHARED
+
+        # ----------------------------------------------------
+        # Native core
+        # ----------------------------------------------------
+
         xr/engine.c
         xr/framebuffer.c
         xr/input.c
@@ -17,12 +51,23 @@ add_library(winlator SHARED
         xr/main.c
         xr/math.c
         xr/renderer.c
+
         winlator/drawable.c
         winlator/gpu_image.c
         winlator/sysvshared_memory.c
         winlator/xconnector_epoll.c
         winlator/alsa_client.c
         winlator/vulkan.c
+
+        # ----------------------------------------------------
+        # 8 GB / 8192 MB memory configuration
+        # ----------------------------------------------------
+
+        ContainerMemory.cpp
+
+        # ----------------------------------------------------
+        # EGL renderer
+        # ----------------------------------------------------
 
         winlator/renderer/EGL/egl.cpp
         winlator/renderer/EGL/renderer_jni.cpp
@@ -33,11 +78,23 @@ add_library(winlator SHARED
         winlator/renderer/EGL/view_transformation.cpp
         winlator/renderer/EGL/displayx.cpp
         winlator/renderer/EGL/displayx_jni.cpp
+
+        # ----------------------------------------------------
+        # Effect composer
+        # ----------------------------------------------------
+
         winlator/renderer/effectcomposer/effect_composer.cpp
 )
 
-target_compile_options(winlator PRIVATE -Wall -Wextra)
+target_compile_options(winlator PRIVATE
+        -Wall
+        -Wextra
+        -std=c++17
+)
+
 target_include_directories(winlator PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+
         winlator/renderer
         winlator/renderer/EGL
         winlator/renderer/effectcomposer
@@ -56,131 +113,373 @@ target_link_libraries(winlator
         vulkan
 )
 
+# ============================================================
+# Fake Input
+# ============================================================
+
 add_library(fakeinput SHARED
         winlator/fakeinput.cpp
 )
 
-target_compile_options(fakeinput PRIVATE -Wall -Wextra -fvisibility=hidden)
+target_compile_options(fakeinput PRIVATE
+        -Wall
+        -Wextra
+        -fvisibility=hidden
+        -std=c++17
+)
 
 target_link_libraries(fakeinput
         log
         dl
 )
 
-set(VULKAN_RENDERER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/winlator/renderer/vulkan)
+# ============================================================
+# Vulkan Renderer
+# ============================================================
+
+set(VULKAN_RENDERER_DIR
+        ${CMAKE_CURRENT_SOURCE_DIR}/winlator/renderer/vulkan
+)
+
+# ============================================================
+# Shader compilation
+# ============================================================
 
 function(compile_shader_header source_file output_file variable_name description)
+
     add_custom_command(
-        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${output_file}
-        COMMAND ${CMAKE_COMMAND}
+            OUTPUT
+                ${CMAKE_CURRENT_BINARY_DIR}/${output_file}
+
+            COMMAND
+                ${CMAKE_COMMAND}
                 -DGLSL_COMPILER=${GLSL_COMPILER}
                 -DGLSLANG_VALIDATOR=${GLSLANG_VALIDATOR}
                 -DSOURCE_FILE=${VULKAN_RENDERER_DIR}/${source_file}
                 -DOUTPUT_FILE=${CMAKE_CURRENT_BINARY_DIR}/${output_file}
                 -DVARIABLE_NAME=${variable_name}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/compile_shader.cmake
-        DEPENDS ${VULKAN_RENDERER_DIR}/${source_file} ${CMAKE_CURRENT_SOURCE_DIR}/compile_shader.cmake
-        COMMENT "${description}"
-        VERBATIM
+
+            DEPENDS
+                ${VULKAN_RENDERER_DIR}/${source_file}
+                ${CMAKE_CURRENT_SOURCE_DIR}/compile_shader.cmake
+
+            COMMENT "${description}"
+
+            VERBATIM
     )
+
 endfunction()
 
-compile_shader_header(window.vert window_vert.h window_vert_code "Compiling window.vert → window_vert.h")
-compile_shader_header(window.frag window_frag.h window_frag_code "Compiling window.frag → window_frag.h")
-compile_shader_header(window_sgsr.frag window_sgsr_frag.h window_sgsr_frag_code "Compiling window_sgsr.frag → window_sgsr_frag.h")
-compile_shader_header(window_fsr1.frag window_fsr1_frag.h window_fsr1_frag_code "Compiling single-pass FSR → window_fsr1_frag.h")
-compile_shader_header(window_lanczos.frag window_lanczos_frag.h window_lanczos_frag_code "Compiling Lanczos 2 → window_lanczos_frag.h")
-compile_shader_header(window_stretch.frag window_stretch_frag.h window_stretch_frag_code "Compiling window_stretch.frag → window_stretch_frag.h")
-compile_shader_header(window_postfx.frag window_postfx_frag.h window_postfx_frag_code "Compiling window_postfx.frag → window_postfx_frag.h")
+compile_shader_header(
+        window.vert
+        window_vert.h
+        window_vert_code
+        "Compiling window.vert → window_vert.h"
+)
 
-set(VULKAN_CONTEXT_SOURCE ${VULKAN_RENDERER_DIR}/VulkanRendererContext.cpp)
-set(VULKAN_CONTEXT_LEGACY ${CMAKE_CURRENT_BINARY_DIR}/VulkanRendererContext_legacy.cpp)
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${VULKAN_CONTEXT_SOURCE})
-file(READ ${VULKAN_CONTEXT_SOURCE} VULKAN_CONTEXT_TEXT)
+compile_shader_header(
+        window.frag
+        window_frag.h
+        window_frag_code
+        "Compiling window.frag → window_frag.h"
+)
 
-set(PIPELINE_OPT_INCLUDE_MARKER "#include <dlfcn.h>\n")
-string(FIND "${VULKAN_CONTEXT_TEXT}" "${PIPELINE_OPT_INCLUDE_MARKER}" PIPELINE_OPT_INCLUDE_POS)
+compile_shader_header(
+        window_sgsr.frag
+        window_sgsr_frag.h
+        window_sgsr_frag_code
+        "Compiling window_sgsr.frag → window_sgsr_frag.h"
+)
+
+compile_shader_header(
+        window_fsr1.frag
+        window_fsr1_frag.h
+        window_fsr1_frag_code
+        "Compiling single-pass FSR → window_fsr1_frag.h"
+)
+
+compile_shader_header(
+        window_lanczos.frag
+        window_lanczos_frag.h
+        window_lanczos_frag_code
+        "Compiling Lanczos 2 → window_lanczos_frag.h"
+)
+
+compile_shader_header(
+        window_stretch.frag
+        window_stretch_frag.h
+        window_stretch_frag_code
+        "Compiling window_stretch.frag → window_stretch_frag.h"
+)
+
+compile_shader_header(
+        window_postfx.frag
+        window_postfx_frag.h
+        window_postfx_frag_code
+        "Compiling window_postfx.frag → window_postfx_frag.h"
+)
+
+# ============================================================
+# VulkanRendererContext legacy generation
+# ============================================================
+
+set(VULKAN_CONTEXT_SOURCE
+        ${VULKAN_RENDERER_DIR}/VulkanRendererContext.cpp
+)
+
+set(VULKAN_CONTEXT_LEGACY
+        ${CMAKE_CURRENT_BINARY_DIR}/VulkanRendererContext_legacy.cpp
+)
+
+set_property(
+        DIRECTORY APPEND
+        PROPERTY CMAKE_CONFIGURE_DEPENDS
+        ${VULKAN_CONTEXT_SOURCE}
+)
+
+file(
+        READ
+        ${VULKAN_CONTEXT_SOURCE}
+        VULKAN_CONTEXT_TEXT
+)
+
+# ============================================================
+# Pipeline optimization include
+# ============================================================
+
+set(
+        PIPELINE_OPT_INCLUDE_MARKER
+        "#include <dlfcn.h>\n"
+)
+
+string(
+        FIND
+        "${VULKAN_CONTEXT_TEXT}"
+        "${PIPELINE_OPT_INCLUDE_MARKER}"
+        PIPELINE_OPT_INCLUDE_POS
+)
+
 if(PIPELINE_OPT_INCLUDE_POS EQUAL -1)
-    message(FATAL_ERROR "VulkanRendererContext.cpp changed: pipeline-opt include marker not found")
-endif()
-string(REPLACE
-    "${PIPELINE_OPT_INCLUDE_MARKER}"
-    "#include <dlfcn.h>\n#include \"VulkanRendererPipelineOpt.h\"\n"
-    VULKAN_CONTEXT_TEXT
-    "${VULKAN_CONTEXT_TEXT}")
 
-set(PIPELINE_OPT_DESTROY_MARKER "    vk_.DeviceWaitIdle(device);\n    for (auto& [id, wt] : texMap) destroyWinTex(wt);")
-string(FIND "${VULKAN_CONTEXT_TEXT}" "${PIPELINE_OPT_DESTROY_MARKER}" PIPELINE_OPT_DESTROY_POS)
+    message(
+            FATAL_ERROR
+            "VulkanRendererContext.cpp changed: pipeline-opt include marker not found"
+    )
+
+endif()
+
+string(
+        REPLACE
+        "${PIPELINE_OPT_INCLUDE_MARKER}"
+        "#include <dlfcn.h>\n#include \"VulkanRendererPipelineOpt.h\"\n"
+        VULKAN_CONTEXT_TEXT
+        "${VULKAN_CONTEXT_TEXT}"
+)
+
+# ============================================================
+# Pipeline optimization destroy
+# ============================================================
+
+set(
+        PIPELINE_OPT_DESTROY_MARKER
+        "    vk_.DeviceWaitIdle(device);\n    for (auto& [id, wt] : texMap) destroyWinTex(wt);"
+)
+
+string(
+        FIND
+        "${VULKAN_CONTEXT_TEXT}"
+        "${PIPELINE_OPT_DESTROY_MARKER}"
+        PIPELINE_OPT_DESTROY_POS
+)
+
 if(PIPELINE_OPT_DESTROY_POS EQUAL -1)
-    message(FATAL_ERROR "VulkanRendererContext.cpp changed: pipeline-opt destroy marker not found")
-endif()
-string(REPLACE
-    "${PIPELINE_OPT_DESTROY_MARKER}"
-    "    vk_.DeviceWaitIdle(device);\n    VulkanRendererDestroyOpaquePipeline(this);\n    for (auto& [id, wt] : texMap) destroyWinTex(wt);"
-    VULKAN_CONTEXT_TEXT
-    "${VULKAN_CONTEXT_TEXT}")
 
-set(LANCZOS_DESTROY_MARKER "    if (fsr1Pipeline != VK_NULL_HANDLE) vk_.DestroyPipeline(device, fsr1Pipeline, nullptr);\n")
-string(FIND "${VULKAN_CONTEXT_TEXT}" "${LANCZOS_DESTROY_MARKER}" LANCZOS_DESTROY_POS)
+    message(
+            FATAL_ERROR
+            "VulkanRendererContext.cpp changed: pipeline-opt destroy marker not found"
+    )
+
+endif()
+
+string(
+        REPLACE
+        "${PIPELINE_OPT_DESTROY_MARKER}"
+        "    vk_.DeviceWaitIdle(device);\n    VulkanRendererDestroyOpaquePipeline(this);\n    for (auto& [id, wt] : texMap) destroyWinTex(wt);"
+        VULKAN_CONTEXT_TEXT
+        "${VULKAN_CONTEXT_TEXT}"
+)
+
+# ============================================================
+# Lanczos pipeline destroy
+# ============================================================
+
+set(
+        LANCZOS_DESTROY_MARKER
+        "    if (fsr1Pipeline != VK_NULL_HANDLE) vk_.DestroyPipeline(device, fsr1Pipeline, nullptr);\n"
+)
+
+string(
+        FIND
+        "${VULKAN_CONTEXT_TEXT}"
+        "${LANCZOS_DESTROY_MARKER}"
+        LANCZOS_DESTROY_POS
+)
+
 if(LANCZOS_DESTROY_POS EQUAL -1)
-    message(FATAL_ERROR "VulkanRendererContext.cpp changed: Lanczos destroy marker not found")
-endif()
-string(REPLACE
-    "${LANCZOS_DESTROY_MARKER}"
-    "    if (fsr1Pipeline != VK_NULL_HANDLE) vk_.DestroyPipeline(device, fsr1Pipeline, nullptr);\n    if (lanczosPipeline != VK_NULL_HANDLE) vk_.DestroyPipeline(device, lanczosPipeline, nullptr);\n"
-    VULKAN_CONTEXT_TEXT
-    "${VULKAN_CONTEXT_TEXT}")
 
-set(RECORD_CMD_MARKER "void VulkanRendererContext::recordCmdBuf(VkCommandBuffer cb, uint32_t imgIdx,")
-set(RENDER_LOOP_MARKER "\nvoid VulkanRendererContext::renderLoop() {")
-string(FIND "${VULKAN_CONTEXT_TEXT}" "${RECORD_CMD_MARKER}" RECORD_CMD_POS)
-string(FIND "${VULKAN_CONTEXT_TEXT}" "${RENDER_LOOP_MARKER}" RENDER_LOOP_POS)
+    message(
+            FATAL_ERROR
+            "VulkanRendererContext.cpp changed: Lanczos destroy marker not found"
+    )
+
+endif()
+
+string(
+        REPLACE
+        "${LANCZOS_DESTROY_MARKER}"
+        "    if (fsr1Pipeline != VK_NULL_HANDLE) vk_.DestroyPipeline(device, fsr1Pipeline, nullptr);\n    if (lanczosPipeline != VK_NULL_HANDLE) vk_.DestroyPipeline(device, lanczosPipeline, nullptr);\n"
+        VULKAN_CONTEXT_TEXT
+        "${VULKAN_CONTEXT_TEXT}"
+)
+
+# ============================================================
+# Legacy recordCmdBuf
+# ============================================================
+
+set(
+        RECORD_CMD_MARKER
+        "void VulkanRendererContext::recordCmdBuf(VkCommandBuffer cb, uint32_t imgIdx,"
+)
+
+set(
+        RENDER_LOOP_MARKER
+        "\nvoid VulkanRendererContext::renderLoop() {"
+)
+
+string(
+        FIND
+        "${VULKAN_CONTEXT_TEXT}"
+        "${RECORD_CMD_MARKER}"
+        RECORD_CMD_POS
+)
+
+string(
+        FIND
+        "${VULKAN_CONTEXT_TEXT}"
+        "${RENDER_LOOP_MARKER}"
+        RENDER_LOOP_POS
+)
+
 if(RECORD_CMD_POS EQUAL -1 OR RENDER_LOOP_POS EQUAL -1)
-    message(FATAL_ERROR "VulkanRendererContext.cpp changed: unable to isolate legacy recordCmdBuf")
-endif()
-string(REPLACE
-    "${RECORD_CMD_MARKER}"
-    "#if 0\n${RECORD_CMD_MARKER}"
-    VULKAN_CONTEXT_TEXT
-    "${VULKAN_CONTEXT_TEXT}")
-string(REPLACE
-    "${RENDER_LOOP_MARKER}"
-    "\n#endif\n${RENDER_LOOP_MARKER}"
-    VULKAN_CONTEXT_TEXT
-    "${VULKAN_CONTEXT_TEXT}")
 
-set(FILTER_CREATE_MARKER "    if (mode == 3 && fsr1Pipeline == VK_NULL_HANDLE) createFsr1Pipeline();\n")
-string(FIND "${VULKAN_CONTEXT_TEXT}" "${FILTER_CREATE_MARKER}" FILTER_CREATE_POS)
+    message(
+            FATAL_ERROR
+            "VulkanRendererContext.cpp changed: unable to isolate legacy recordCmdBuf"
+    )
+
+endif()
+
+string(
+        REPLACE
+        "${RECORD_CMD_MARKER}"
+        "#if 0\n${RECORD_CMD_MARKER}"
+        VULKAN_CONTEXT_TEXT
+        "${VULKAN_CONTEXT_TEXT}"
+)
+
+string(
+        REPLACE
+        "${RENDER_LOOP_MARKER}"
+        "\n#endif\n${RENDER_LOOP_MARKER}"
+        VULKAN_CONTEXT_TEXT
+        "${VULKAN_CONTEXT_TEXT}"
+)
+
+# ============================================================
+# Filter creation
+# ============================================================
+
+set(
+        FILTER_CREATE_MARKER
+        "    if (mode == 3 && fsr1Pipeline == VK_NULL_HANDLE) createFsr1Pipeline();\n"
+)
+
+string(
+        FIND
+        "${VULKAN_CONTEXT_TEXT}"
+        "${FILTER_CREATE_MARKER}"
+        FILTER_CREATE_POS
+)
+
 if(FILTER_CREATE_POS EQUAL -1)
-    message(FATAL_ERROR "VulkanRendererContext.cpp changed: filter creation marker not found")
+
+    message(
+            FATAL_ERROR
+            "VulkanRendererContext.cpp changed: filter creation marker not found"
+    )
+
 endif()
-string(REPLACE
-    "${FILTER_CREATE_MARKER}"
-    "    if (mode == 3 && fsr1Pipeline == VK_NULL_HANDLE) createFsr1Pipeline();\n    if (mode == 4 && lanczosPipeline == VK_NULL_HANDLE) createLanczosPipeline();\n"
-    VULKAN_CONTEXT_TEXT
-    "${VULKAN_CONTEXT_TEXT}")
 
-string(REPLACE
-    "auto modeName=[](int m){ return m==1?\"NEAREST\":m==2?\"SGSR\":m==3?\"FSR1\":\"LINEAR\"; };"
-    "auto modeName=[](int m){ return m==1?\"NEAREST\":m==2?\"SGSR\":m==3?\"FSR\":m==4?\"LANCZOS2\":\"LINEAR\"; };"
-    VULKAN_CONTEXT_TEXT
-    "${VULKAN_CONTEXT_TEXT}")
-string(REPLACE
-    "filterMode, filterMode==3?\"FSR1\":filterMode==2?\"SGSR\":filterMode==1?\"NEAREST\":\"LINEAR\");"
-    "filterMode, filterMode==4?\"LANCZOS2\":filterMode==3?\"FSR\":filterMode==2?\"SGSR\":filterMode==1?\"NEAREST\":\"LINEAR\");"
-    VULKAN_CONTEXT_TEXT
-    "${VULKAN_CONTEXT_TEXT}")
+string(
+        REPLACE
+        "${FILTER_CREATE_MARKER}"
+        "    if (mode == 3 && fsr1Pipeline == VK_NULL_HANDLE) createFsr1Pipeline();\n    if (mode == 4 && lanczosPipeline == VK_NULL_HANDLE) createLanczosPipeline();\n"
+        VULKAN_CONTEXT_TEXT
+        "${VULKAN_CONTEXT_TEXT}"
+)
 
-file(WRITE ${VULKAN_CONTEXT_LEGACY} "${VULKAN_CONTEXT_TEXT}")
+# ============================================================
+# Filter names
+# ============================================================
+
+string(
+        REPLACE
+        "auto modeName=[](int m){ return m==1?\"NEAREST\":m==2?\"SGSR\":m==3?\"FSR1\":\"LINEAR\"; };"
+        "auto modeName=[](int m){ return m==1?\"NEAREST\":m==2?\"SGSR\":m==3?\"FSR\":m==4?\"LANCZOS2\":\"LINEAR\"; };"
+        VULKAN_CONTEXT_TEXT
+        "${VULKAN_CONTEXT_TEXT}"
+)
+
+string(
+        REPLACE
+        "filterMode, filterMode==3?\"FSR1\":filterMode==2?\"SGSR\":filterMode==1?\"NEAREST\":\"LINEAR\");"
+        "filterMode, filterMode==4?\"LANCZOS2\":filterMode==3?\"FSR\":filterMode==2?\"SGSR\":filterMode==1?\"NEAREST\":\"LINEAR\");"
+        VULKAN_CONTEXT_TEXT
+        "${VULKAN_CONTEXT_TEXT}"
+)
+
+# ============================================================
+# Generate legacy Vulkan context
+# ============================================================
+
+file(
+        WRITE
+        ${VULKAN_CONTEXT_LEGACY}
+        "${VULKAN_CONTEXT_TEXT}"
+)
+
+# ============================================================
+# Include directories
+# ============================================================
 
 include_directories(
         ${CMAKE_CURRENT_BINARY_DIR}
         ${VULKAN_RENDERER_DIR}
 )
 
+# ============================================================
+# Vulkan renderer library
+# ============================================================
+
 add_library(vulkan_renderer SHARED
+
+        # JNI
         winlator/renderer/vulkan/vulkan_jni.cpp
+
+        # LSFG
         winlator/renderer/vulkan/VulkanRendererLsfg.cpp
+
         winlator/renderer/vulkan/lsfg/lsfg_alpha.cpp
         winlator/renderer/vulkan/lsfg/lsfg_beta.cpp
         winlator/renderer/vulkan/lsfg/lsfg_chain.cpp
@@ -198,17 +497,24 @@ add_library(vulkan_renderer SHARED
         winlator/renderer/vulkan/lsfg/lsfg_probe.cpp
         winlator/renderer/vulkan/lsfg/lsfg_shaders.cpp
         winlator/renderer/vulkan/lsfg/lsfg_vkd.cpp
+
+        # WinFG
         winlator/renderer/vulkan/winfg/framegen.cpp
         winlator/renderer/vulkan/winfg/winfg_vkd.cpp
         winlator/renderer/vulkan/winfg/winfg_engine.cpp
 
+        # Modified Vulkan context
         ${VULKAN_CONTEXT_LEGACY}
+
+        # Filters
         winlator/renderer/vulkan/VulkanRendererFilters.cpp
         winlator/renderer/vulkan/VulkanRendererPipelineOpt.cpp
 
+        # Transformation
         winlator/renderer/vulkan/view_transformation.cpp
         winlator/renderer/vulkan/xform.cpp
 
+        # Generated shaders
         ${CMAKE_CURRENT_BINARY_DIR}/window_vert.h
         ${CMAKE_CURRENT_BINARY_DIR}/window_frag.h
         ${CMAKE_CURRENT_BINARY_DIR}/window_sgsr_frag.h
@@ -218,8 +524,18 @@ add_library(vulkan_renderer SHARED
         ${CMAKE_CURRENT_BINARY_DIR}/window_postfx_frag.h
 )
 
-set(WINFG_UPSTREAM "v0.3.0")
-set(WINFG_CHAIN_SRC
+# ============================================================
+# WinFG version / integrity hash
+# ============================================================
+
+set(
+        WINFG_UPSTREAM
+        "v0.3.0"
+)
+
+set(
+        WINFG_CHAIN_SRC
+
         winlator/renderer/vulkan/winfg/framegen.cpp
         winlator/renderer/vulkan/winfg/framegen.hpp
         winlator/renderer/vulkan/winfg/record_impl.inc
@@ -227,24 +543,62 @@ set(WINFG_CHAIN_SRC
         winlator/renderer/vulkan/winfg/embedded_shaders.hpp
         winlator/renderer/vulkan/winfg/winfg_engine.cpp
 )
-set(WINFG_HASH_INPUT "")
-foreach(f ${WINFG_CHAIN_SRC})
-    file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/${f}" _h)
-    string(APPEND WINFG_HASH_INPUT "${_h}")
-endforeach()
-string(SHA256 WINFG_CHAIN_HASH_FULL "${WINFG_HASH_INPUT}")
-string(SUBSTRING "${WINFG_CHAIN_HASH_FULL}" 0 12 WINFG_CHAIN_HASH)
 
-target_compile_definitions(vulkan_renderer PRIVATE
+set(WINFG_HASH_INPUT "")
+
+foreach(f ${WINFG_CHAIN_SRC})
+
+    file(
+            SHA256
+            "${CMAKE_CURRENT_SOURCE_DIR}/${f}"
+            _h
+    )
+
+    string(
+            APPEND
+            WINFG_HASH_INPUT
+            "${_h}"
+    )
+
+endforeach()
+
+string(
+        SHA256
+        WINFG_CHAIN_HASH_FULL
+        "${WINFG_HASH_INPUT}"
+)
+
+string(
+        SUBSTRING
+        "${WINFG_CHAIN_HASH_FULL}"
+        0
+        12
+        WINFG_CHAIN_HASH
+)
+
+# ============================================================
+# Vulkan renderer definitions
+# ============================================================
+
+target_compile_definitions(
+        vulkan_renderer PRIVATE
+
         WINFG_UPSTREAM="${WINFG_UPSTREAM}"
         WINFG_CHAIN_HASH="${WINFG_CHAIN_HASH}"
 )
 
-target_compile_options(vulkan_renderer PRIVATE
-        -Wall -Wextra -fvisibility=hidden -std=c++17
+target_compile_options(
+        vulkan_renderer PRIVATE
+
+        -Wall
+        -Wextra
+        -fvisibility=hidden
+        -std=c++17
 )
 
-target_link_libraries(vulkan_renderer
+target_link_libraries(
+        vulkan_renderer
+
         dxbc
         log
         android
